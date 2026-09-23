@@ -1,0 +1,20 @@
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/digitalheroes}
+    username: ${DATABASE_USERNAME:postgres}
+    password: ${DATABASE_PASSWORD:root}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+    show-sql: true
+stripe:
+  secret-key: ${STRIPE_SECRET_KEY:sk_test_fake_key_for_development}
+  webhook:
+    secret: ${STRIPE_WEBHOOK_SECRET:whsec_placeholder}
+server:
+  port: 8080
