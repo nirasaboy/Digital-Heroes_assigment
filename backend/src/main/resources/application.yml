@@ -17,4 +17,4 @@ stripe:
   webhook:
     secret: ${STRIPE_WEBHOOK_SECRET:whsec_placeholder}
 server:
-  port: 8080
+  port: ${PORT:8080}
