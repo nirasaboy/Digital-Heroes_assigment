@@ -25,8 +25,8 @@ pipeline {
         // Jenkins credential IDs (add these in Jenkins → Manage Credentials)
         DOCKER_CREDS    = credentials('dockerhub-credentials') // username/password credential
         DB_URL          = credentials('db-url')                // Secret text
-        DB_USERNAME     = credentials('db-username')           // Secret text
-        DB_PASSWORD     = credentials('db-password')           // Secret text
+        DB_USERNAME     = credentials('db-postgres')           // Secret text
+        DB_PASSWORD     = credentials('db-root')           // Secret text
         STRIPE_KEY      = credentials('stripe-secret-key')     // Secret text
         STRIPE_WEBHOOK  = credentials('stripe-webhook-secret') // Secret text
     }
