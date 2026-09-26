@@ -74,7 +74,7 @@ pipeline {
                             --no-transfer-progress \
                             -Dspring.datasource.url=jdbc:postgresql://localhost:5432/digitalheroes \
                             -Dspring.datasource.username=postgres \
-                            -Dspring.datasource.password=postgres
+                            -Dspring.datasource.password=root
                     """
                 }
             }
