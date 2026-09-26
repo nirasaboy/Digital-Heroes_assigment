@@ -13,37 +13,36 @@ pipeline {
         JAR_NAME        = "${APP_NAME}-${APP_VERSION}.jar"
 
         // Java / Maven
-        JAVA_HOME       = tool name: 'JDK-17', type: 'jdk'   // Configure this tool in Jenkins → Global Tool Config
+        JAVA_HOME       = tool name: 'JDK-17', type: 'jdk'
         MAVEN_HOME      = "${WORKSPACE}/apache-maven-3.9.6"
         MAVEN_OPTS      = '-Xmx1024m -XX:MaxMetaspaceSize=512m'
 
         // Docker
-        DOCKER_REGISTRY = 'docker.io'                          // Change to your registry (e.g. ghcr.io, <account>.dkr.ecr.<region>.amazonaws.com)
+        DOCKER_REGISTRY = 'docker.io'
         DOCKER_IMAGE    = "digitalheroes/${APP_NAME}"
-        DOCKER_TAG      = "${BUILD_NUMBER}"                    // e.g. :42  — also tagged :latest below
+        DOCKER_TAG      = "${BUILD_NUMBER}"
 
-        // Jenkins credential IDs (add these in Jenkins → Manage Credentials)
-        DOCKER_CREDS    = credentials('dockerhub-credentials') // username/password credential
-        DB_URL          = credentials('db-url')                // Secret text
-        DB_USERNAME     = credentials('db-postgres')           // Secret text
-        DB_PASSWORD     = credentials('db-root')           // Secret text
-        STRIPE_KEY      = credentials('stripe-secret-key')     // Secret text
-        STRIPE_WEBHOOK  = credentials('stripe-webhook-secret') // Secret text
+        // Jenkins credential IDs
+        DOCKER_CREDS    = credentials('dockerhub-credentials')
+        DB_URL          = credentials('db-url')
+        DB_USERNAME     = 'postgres'
+        DB_PASSWORD     = credentials('db-root')
+        STRIPE_KEY      = credentials('stripe-secret-key')
+        STRIPE_WEBHOOK  = credentials('stripe-webhook-secret')
     }
 
     // ─────────────────────────────────────────────
     // Global options
     // ─────────────────────────────────────────────
     options {
-        buildDiscarder(logRotator(numToKeepStr: '10'))  // keep last 10 builds
-        disableConcurrentBuilds()                        // prevent parallel runs on same branch
-        timestamps()                                     // prefix every log line with timestamp
-        timeout(time: 30, unit: 'MINUTES')               // fail-safe: abort if build hangs
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds()
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
     }
 
     // ─────────────────────────────────────────────
-    // Trigger: poll SCM every 5 minutes, or use a
-    // GitHub/GitLab webhook instead (recommended).
+    // Trigger
     // ─────────────────────────────────────────────
     triggers {
         pollSCM('H/5 * * * *')
@@ -67,6 +66,7 @@ pipeline {
             steps {
                 dir('backend') {
                     echo "==> Building Spring Boot application with Maven"
+
                     sh """
                         ${MAVEN_HOME}/bin/mvn clean package \
                             -DskipTests \
@@ -78,6 +78,7 @@ pipeline {
                     """
                 }
             }
+
             post {
                 success {
                     echo "==> Build successful. JAR located at backend/target/"
@@ -91,6 +92,7 @@ pipeline {
             steps {
                 dir('backend') {
                     echo "==> Running tests"
+
                     sh """
                         ${MAVEN_HOME}/bin/mvn test \
                             --batch-mode \
@@ -103,12 +105,14 @@ pipeline {
                     """
                 }
             }
+
             post {
                 always {
                     // Publish JUnit test results
                     junit allowEmptyResults: true,
                           testResults: 'backend/target/surefire-reports/*.xml'
                 }
+
                 failure {
                     echo "==> Tests FAILED. Check the Test Results tab for details."
                 }
@@ -124,9 +128,11 @@ pipeline {
                     branch 'develop'
                 }
             }
+
             steps {
                 dir('backend') {
                     echo "==> Building Docker image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+
                     sh """
                         docker build \
                             --build-arg JAR_FILE=target/${APP_NAME}-*.jar \
@@ -147,8 +153,10 @@ pipeline {
                     branch 'develop'
                 }
             }
+
             steps {
                 echo "==> Pushing Docker image to ${DOCKER_REGISTRY}"
+
                 sh """
                     echo ${DOCKER_CREDS_PSW} | docker login ${DOCKER_REGISTRY} \
                         -u ${DOCKER_CREDS_USR} \
@@ -158,6 +166,7 @@ pipeline {
                     docker push ${DOCKER_IMAGE}:latest
                 """
             }
+
             post {
                 always {
                     sh 'docker logout ${DOCKER_REGISTRY} || true'
@@ -165,16 +174,15 @@ pipeline {
             }
         }
 
-        // ── 6. Deploy (Production / Staging) ─────
+        // ── 6. Deploy ─────────────────────────────
         stage('Deploy') {
             when {
-                branch 'main'   // only deploy from main
+                branch 'main'
             }
+
             steps {
                 echo "==> Deploying ${DOCKER_IMAGE}:${DOCKER_TAG} to production"
 
-                // Example: SSH into server and re-pull + restart the container.
-                // Replace with your actual deployment method (kubectl, docker-compose, etc.)
                 sh """
                     docker stop ${APP_NAME} || true
                     docker rm   ${APP_NAME} || true
@@ -184,8 +192,8 @@ pipeline {
                         --restart unless-stopped \
                         -p 8080:8080 \
                         -e DATABASE_URL=${DB_URL} \
-                        -e DATABASE_USERNAME=${DB_USERNAME} \
-                        -e DATABASE_PASSWORD=${DB_PASSWORD} \
+                        -e DATABASE_USERNAME=${postgres} \
+                        -e DATABASE_PASSWORD=${root} \
                         -e STRIPE_SECRET_KEY=${STRIPE_KEY} \
                         -e STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK} \
                         ${DOCKER_IMAGE}:${DOCKER_TAG}
@@ -193,35 +201,27 @@ pipeline {
             }
         }
 
-    } // end stages
+    }
 
     // ─────────────────────────────────────────────
-    // Post-pipeline actions (run regardless of result)
+    // Post-pipeline actions
     // ─────────────────────────────────────────────
     post {
         always {
             echo "==> Pipeline finished with status: ${currentBuild.currentResult}"
 
-            // Clean up dangling Docker images to save disk space
-            sh 'docker image prune -f || true'
-
-            // Clean workspace (optional — comment out if you want to inspect files)
-            cleanWs()
+            // Removed docker image prune and cleanWs
+            // because they were causing:
+            // MissingContextVariableException:
+            // Required context class hudson.FilePath is missing
         }
 
         success {
             echo "==> BUILD SUCCEEDED ✔ — ${APP_NAME} v${DOCKER_TAG} is live."
-            // Uncomment and configure to send Slack/email notifications:
-            // slackSend channel: '#deployments',
-            //           color: 'good',
-            //           message: "✅ *${APP_NAME}* build #${BUILD_NUMBER} succeeded on `${env.GIT_BRANCH}`."
         }
 
         failure {
             echo "==> BUILD FAILED ✘ — check the console output."
-            // emailext subject: "❌ Jenkins Build Failed: ${APP_NAME} #${BUILD_NUMBER}",
-            //          body:    "Branch: ${env.GIT_BRANCH}\nCheck: ${env.BUILD_URL}",
-            //          to:      'team@digitalheroes.com'
         }
 
         unstable {
