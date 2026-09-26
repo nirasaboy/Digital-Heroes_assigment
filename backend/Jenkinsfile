@@ -1,11 +1,6 @@
 pipeline {
     agent any
 
-    // ─────────────────────────────────────────────
-    // Pipeline-level environment variables
-    // Secrets are stored as Jenkins Credentials and
-    // injected here so they never appear in plain text.
-    // ─────────────────────────────────────────────
     environment {
         // Application
         APP_NAME        = 'digital-heroes-api'
@@ -22,18 +17,19 @@ pipeline {
         DOCKER_IMAGE    = "digitalheroes/${APP_NAME}"
         DOCKER_TAG      = "${BUILD_NUMBER}"
 
-        // Jenkins credential IDs
+        // Jenkins credentials
         DOCKER_CREDS    = credentials('dockerhub-credentials')
-        DB_URL          = credentials('db-url')
+
+        // Database
+        DB_URL          = 'jdbc:postgresql://localhost:5432/digitalheroes'
         DB_USERNAME     = 'postgres'
-        DB_PASSWORD     = credentials('db-root')
+        DB_PASSWORD     = 'root'
+
+        // Stripe credentials
         STRIPE_KEY      = credentials('stripe-secret-key')
         STRIPE_WEBHOOK  = credentials('stripe-webhook-secret')
     }
 
-    // ─────────────────────────────────────────────
-    // Global options
-    // ─────────────────────────────────────────────
     options {
         buildDiscarder(logRotator(numToKeepStr: '10'))
         disableConcurrentBuilds()
@@ -41,19 +37,12 @@ pipeline {
         timeout(time: 30, unit: 'MINUTES')
     }
 
-    // ─────────────────────────────────────────────
-    // Trigger
-    // ─────────────────────────────────────────────
     triggers {
         pollSCM('H/5 * * * *')
     }
 
-    // ─────────────────────────────────────────────
-    // Pipeline stages
-    // ─────────────────────────────────────────────
     stages {
 
-        // ── 1. Checkout ──────────────────────────
         stage('Checkout') {
             steps {
                 echo "==> Checking out source code on branch: ${env.GIT_BRANCH}"
@@ -61,7 +50,6 @@ pipeline {
             }
         }
 
-        // ── 2. Build ─────────────────────────────
         stage('Build') {
             steps {
                 dir('backend') {
@@ -72,9 +60,9 @@ pipeline {
                             -DskipTests \
                             --batch-mode \
                             --no-transfer-progress \
-                            -Dspring.datasource.url=jdbc:postgresql://localhost:5432/digitalheroes \
-                            -Dspring.datasource.username=postgres \
-                            -Dspring.datasource.password=root
+                            -Dspring.datasource.url=${DB_URL} \
+                            -Dspring.datasource.username=${DB_USERNAME} \
+                            -Dspring.datasource.password=${DB_PASSWORD}
                     """
                 }
             }
@@ -87,7 +75,6 @@ pipeline {
             }
         }
 
-        // ── 3. Unit & Integration Tests ───────────
         stage('Test') {
             steps {
                 dir('backend') {
@@ -108,7 +95,6 @@ pipeline {
 
             post {
                 always {
-                    // Publish JUnit test results
                     junit allowEmptyResults: true,
                           testResults: 'backend/target/surefire-reports/*.xml'
                 }
@@ -119,7 +105,6 @@ pipeline {
             }
         }
 
-        // ── 4. Docker Build ───────────────────────
         stage('Docker Build') {
             when {
                 anyOf {
@@ -144,7 +129,6 @@ pipeline {
             }
         }
 
-        // ── 5. Docker Push ────────────────────────
         stage('Docker Push') {
             when {
                 anyOf {
@@ -174,7 +158,6 @@ pipeline {
             }
         }
 
-        // ── 6. Deploy ─────────────────────────────
         stage('Deploy') {
             when {
                 branch 'main'
@@ -185,35 +168,26 @@ pipeline {
 
                 sh """
                     docker stop ${APP_NAME} || true
-                    docker rm   ${APP_NAME} || true
+                    docker rm ${APP_NAME} || true
 
                     docker run -d \
                         --name ${APP_NAME} \
                         --restart unless-stopped \
                         -p 8080:8080 \
-                        -e DATABASE_URL=${DB_URL} \
-                        -e DATABASE_USERNAME=${postgres} \
-                        -e DATABASE_PASSWORD=${root} \
-                        -e STRIPE_SECRET_KEY=${STRIPE_KEY} \
-                        -e STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK} \
+                        -e DATABASE_URL="${DB_URL}" \
+                        -e DATABASE_USERNAME="${DB_USERNAME}" \
+                        -e DATABASE_PASSWORD="${DB_PASSWORD}" \
+                        -e STRIPE_SECRET_KEY="${STRIPE_KEY}" \
+                        -e STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK}" \
                         ${DOCKER_IMAGE}:${DOCKER_TAG}
                 """
             }
         }
-
     }
 
-    // ─────────────────────────────────────────────
-    // Post-pipeline actions
-    // ─────────────────────────────────────────────
     post {
         always {
             echo "==> Pipeline finished with status: ${currentBuild.currentResult}"
-
-            // Removed docker image prune and cleanWs
-            // because they were causing:
-            // MissingContextVariableException:
-            // Required context class hudson.FilePath is missing
         }
 
         success {
