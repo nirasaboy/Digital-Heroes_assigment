@@ -17,17 +17,13 @@ pipeline {
         DOCKER_IMAGE    = "digitalheroes/${APP_NAME}"
         DOCKER_TAG      = "${BUILD_NUMBER}"
 
-        // Jenkins credentials
+        // Docker Hub credential
         DOCKER_CREDS    = credentials('dockerhub-credentials')
 
-        // Database
+        // PostgreSQL
         DB_URL          = 'jdbc:postgresql://localhost:5432/digitalheroes'
         DB_USERNAME     = 'postgres'
         DB_PASSWORD     = 'root'
-
-        // Stripe credentials
-        STRIPE_KEY      = credentials('stripe-secret-key')
-        STRIPE_WEBHOOK  = credentials('stripe-webhook-secret')
     }
 
     options {
@@ -43,6 +39,7 @@ pipeline {
 
     stages {
 
+        // ── 1. Checkout ──────────────────────────
         stage('Checkout') {
             steps {
                 echo "==> Checking out source code on branch: ${env.GIT_BRANCH}"
@@ -50,6 +47,7 @@ pipeline {
             }
         }
 
+        // ── 2. Build ─────────────────────────────
         stage('Build') {
             steps {
                 dir('backend') {
@@ -70,11 +68,13 @@ pipeline {
             post {
                 success {
                     echo "==> Build successful. JAR located at backend/target/"
-                    archiveArtifacts artifacts: 'backend/target/*.jar', fingerprint: true
+                    archiveArtifacts artifacts: 'backend/target/*.jar',
+                                     fingerprint: true
                 }
             }
         }
 
+        // ── 3. Unit & Integration Tests ──────────
         stage('Test') {
             steps {
                 dir('backend') {
@@ -86,9 +86,7 @@ pipeline {
                             --no-transfer-progress \
                             -Dspring.datasource.url=${DB_URL} \
                             -Dspring.datasource.username=${DB_USERNAME} \
-                            -Dspring.datasource.password=${DB_PASSWORD} \
-                            -Dstripe.secret-key=${STRIPE_KEY} \
-                            -Dstripe.webhook.secret=${STRIPE_WEBHOOK}
+                            -Dspring.datasource.password=${DB_PASSWORD}
                     """
                 }
             }
@@ -105,6 +103,7 @@ pipeline {
             }
         }
 
+        // ── 4. Docker Build ──────────────────────
         stage('Docker Build') {
             when {
                 anyOf {
@@ -129,6 +128,7 @@ pipeline {
             }
         }
 
+        // ── 5. Docker Push ───────────────────────
         stage('Docker Push') {
             when {
                 anyOf {
@@ -158,6 +158,7 @@ pipeline {
             }
         }
 
+        // ── 6. Deploy ────────────────────────────
         stage('Deploy') {
             when {
                 branch 'main'
@@ -177,14 +178,15 @@ pipeline {
                         -e DATABASE_URL="${DB_URL}" \
                         -e DATABASE_USERNAME="${DB_USERNAME}" \
                         -e DATABASE_PASSWORD="${DB_PASSWORD}" \
-                        -e STRIPE_SECRET_KEY="${STRIPE_KEY}" \
-                        -e STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK}" \
                         ${DOCKER_IMAGE}:${DOCKER_TAG}
                 """
             }
         }
     }
 
+    // ─────────────────────────────────────────────
+    // Post-pipeline actions
+    // ─────────────────────────────────────────────
     post {
         always {
             echo "==> Pipeline finished with status: ${currentBuild.currentResult}"
